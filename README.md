@@ -1,110 +1,78 @@
 # LampaC
 
-A dual repository for Deepwiki with automated submodule management system.
+An auto-updating mirror repository for Deepwiki that keeps `lampa-source` and `Lampac` in one place. The goal is flexible indexing of both projects and the ability to work with them as a single codebase.
 
-## Overview
+## Repository Structure (Project Analysis)
 
-LampaC is a comprehensive project that combines two important repositories as Git submodules to provide a complete solution for media streaming and content management.
-
-## Submodules
-
-This repository includes the following Git submodules:
-
-### 1. lampa-source
-- **Repository**: [yumata/lampa-source](https://github.com/yumata/lampa-source)
-- **Purpose**: Core application source code
+### lampa-source
+- **Repository**: https://github.com/yumata/lampa-source
+- **Role**: Lampa client application source code.
+- **Notes**: NPM-based build and local documentation generation.
 - **Location**: `lampa-source/`
 
-### 2. Lampac
-- **Repository**: [immisterio/Lampac](https://github.com/immisterio/Lampac)
-- **Purpose**: Extended functionality and modules
+### Lampac
+- **Repository**: https://github.com/immisterio/Lampac
+- **Role**: Server-side and infrastructure components, extensions, and plugins for Lampa.
+- **Notes**: Installers for Linux/Windows/Docker/Android and a large integration set.
 - **Location**: `Lampac/`
 
-## Automated Updates
+## Why This Repository Exists
 
-### GitHub Actions Workflows
+- **Single index for Deepwiki**: both client and server parts live together for consistent indexing.
+- **Shared context**: easier cross-referencing between `lampa-source` and `Lampac`.
+- **Automated sync**: upstream changes are pulled without manual maintenance.
 
-The project includes automated GitHub Actions workflows that keep submodules synchronized with their source repositories:
+## Update Mechanism (No Git Submodules)
 
-#### Auto Update Submodules
-- **Schedule**: Runs automatically every day at 02:00 UTC
-- **Manual Trigger**: Can be triggered manually from GitHub Actions tab
-- **Process**: Updates submodules to latest commits and pushes directly to main branch
-- **Safety**: Only commits when actual changes are detected
+This repo no longer uses Git submodules. Instead, it syncs both upstream repositories by direct import via the workflow:
 
-#### Update Submodules (Alternative)
-- **Purpose**: Alternative workflow with identical functionality
-- **Benefits**: Provides redundancy for critical updates
+- `.github/workflows/update-submodules.yml`
 
-### Manual Submodule Updates
+The workflow clones the upstream repositories into temp directories and rsyncs their contents into `Lampac/` and `lampa-source/` (with `.git` removed). If changes are detected, it commits and pushes them to `main`.
 
-You can also update submodules manually:
+## Manual Sync
 
 ```bash
-# Update all submodules to latest
-git submodule update --remote --merge
+# Sync Lampac
+(tmp="$(mktemp -d)" \
+  && git clone --depth 1 https://github.com/immisterio/Lampac "$tmp" \
+  && rm -rf "$tmp/.git" \
+  && rsync -a --delete "$tmp"/ Lampac/ \
+  && rm -rf "$tmp")
 
-# Update specific submodule
-git submodule update --remote lampa-source
-git submodule update --remote Lampac
-
-# View submodule status
-git submodule status
+# Sync lampa-source
+(tmp="$(mktemp -d)" \
+  && git clone --depth 1 https://github.com/yumata/lampa-source "$tmp" \
+  && rm -rf "$tmp/.git" \
+  && rsync -a --delete "$tmp"/ lampa-source/ \
+  && rm -rf "$tmp")
 ```
 
 ## Documentation
 
-- **[SUBMODULE_UPDATES.md](./SUBMODULE_UPDATES.md)** - Complete guide to automated submodule management
-- **[SUBMODULE_COMMANDS.md](./SUBMODULE_COMMANDS.md)** - Quick reference for submodule operations
-
-## Features
-
-- **Automated Synchronization**: Submodules stay up-to-date automatically
-- **Direct Updates**: Changes are applied immediately without review process
-- **Manual Override**: Full control with manual update capabilities
-- **Comprehensive Documentation**: Detailed guides for all operations
-- **Safety First**: Only commits when actual changes exist
+- `SUBMODULE_UPDATES.md` — how automated updates work.
+- `SUBMODULE_COMMANDS.md` — quick manual sync commands.
 
 ## Getting Started
 
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/your-org/LampaC.git
-   cd LampaC
-   ```
-
-2. **Initialize submodules**:
-   ```bash
-   git submodule update --init --recursive
-   ```
-
-3. **Check submodule status**:
-   ```bash
-   git submodule status
-   ```
-
-## Workflow
-
-1. **Daily Automation**: GitHub Actions checks for updates daily
-2. **Smart Detection**: Only commits when submodule changes exist
-3. **Direct Application**: Updates are pushed directly to main branch
-4. **Transparency**: All changes are logged with detailed commit messages
+```bash
+git clone https://github.com/your-org/LampaC.git
+cd LampaC
+ls Lampac lampa-source
+```
 
 ## Benefits
 
-- **Zero Maintenance**: Automated system handles updates
-- **Always Current**: Submodules stay synchronized with upstream
-- **Developer Friendly**: Simple commands for manual operations
-- **Reliable**: Multiple workflows ensure consistent updates
-- **Documented**: Comprehensive guides for all operations
+- **One repo, two sources**: unified navigation and review.
+- **Always current**: automated syncing from upstream.
+- **Transparent history**: syncs are committed and traceable.
+- **Deepwiki-friendly**: ideal for indexing and cross-repo analysis.
 
 ## Security
 
-- Uses GitHub's built-in security features
-- Minimal required permissions for workflows
-- All commits are signed by `github-actions[bot]`
-- Updates are logged and traceable
+- Uses standard GitHub Actions with minimal permissions.
+- Commits are authored by `github-actions[bot]`.
 
 ---
 
-*This project is part of the Deepwiki ecosystem, providing a robust foundation for media streaming applications.*
+*LampaC is part of the Deepwiki ecosystem, providing unified access to Lampa client and server code.*
