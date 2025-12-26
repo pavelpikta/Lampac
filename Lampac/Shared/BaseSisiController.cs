@@ -14,8 +14,6 @@ namespace Shared
 {
     public class BaseSisiController : BaseController
     {
-        public BaseSettings init { get; private set; }
-
         public RchClient rch { get; private set; }
 
         public ProxyManager proxyManager { get; private set; }
@@ -24,9 +22,10 @@ namespace Shared
 
         public (string ip, string username, string password) proxy_data { get; private set; }
 
+        public BaseSettings init { get; private set; }
 
-        #region IsBadInitialization
-        async public ValueTask<bool> IsBadInitialization(BaseSettings init, bool? rch = null, int? rch_keepalive = null)
+        #region IsRequestBlocked
+        async public ValueTask<bool> IsRequestBlocked(BaseSettings init, bool? rch = null, int? rch_keepalive = null)
         {
             #region module initialization
             if (AppInit.modules != null)
@@ -109,12 +108,15 @@ namespace Shared
                 }
             }
 
+            if (IsCacheError(init, this.rch))
+                return true;
+
             proxyManager = new ProxyManager(init);
             var bp = proxyManager.BaseGet();
             proxy = bp.proxy;
             proxy_data = bp.data;
 
-            return IsCacheError(init);
+            return false;
         }
         #endregion
 
@@ -252,7 +254,7 @@ namespace Shared
         }
         #endregion
 
-        #region SemaphoreResult
+        #region Semaphore
         public Task<ActionResult> SemaphoreResult(string key, Func<(string key, SemaphorManager semaphore), Task<ActionResult>> func) 
         {
             var semaphore = new SemaphorManager(key, TimeSpan.FromSeconds(30));
@@ -266,9 +268,9 @@ namespace Shared
                 semaphore.Release();
             }
         }
-        #endregion
 
-        [Obsolete("Плохо реализует rhub с включенным rhub_fallback при использовании rch.ipkey()")]
-        public Task<ActionResult> InvkSemaphore(string key, Func<ValueTask<ActionResult>> func) => InvkSemaphore(init, key, func);
+        public Task<ActionResult> InvkSemaphore(string key, Func<string, ValueTask<ActionResult>> func)
+            => InvkSemaphore(key, rch, () => func.Invoke(key));
+        #endregion
     }
 }
