@@ -92,11 +92,11 @@ namespace Online.Controllers
 
             var oninvk = new LumexInvoke
             (
-               init,
-               (url, referer) => httpHydra.Get(url, addheaders: HeadersModel.Init("referer", referer)),
-               streamfile => HostStreamProxy(streamfile),
                host,
-               requesterror: () => proxyManager.Refresh()
+               init,
+               (url, referer, safety) => httpHydra.Get(url, addheaders: HeadersModel.Init("referer", referer), safety: safety),
+               streamfile => HostStreamProxy(streamfile),
+               requesterror: () => proxyManager.Refresh(rch)
             );
 
             if (similar || (content_id == 0 && kinopoisk_id == 0 && string.IsNullOrEmpty(imdb_id)))
@@ -140,7 +140,7 @@ namespace Online.Controllers
                 {
                     content_uri = $"https://api.{init.iframehost}/content?clientId={init.clientId}&contentType=short&kpId={kinopoisk_id}";
 
-                    content_headers = HeadersModel.Init(new Dictionary<string, string>(Http.defaultHeaders)
+                    content_headers = HeadersModel.Init(new Dictionary<string, string>(Http.defaultUaHeaders)
                     {
                         ["accept"] = "*/*",
                         ["accept-language"] = "ru-RU,ru;q=0.9,uk-UA;q=0.8,uk;q=0.7,en-US;q=0.6,en;q=0.5",
@@ -299,7 +299,7 @@ namespace Online.Controllers
                     var result = await Http.Post<JObject>($"https://api.{init.iframehost}" + playlist, "", httpversion: 2, proxy: proxy, timeoutSeconds: 8, headers: content_headers);
 
                     if (result == null || !result.ContainsKey("url"))
-                        return OnError(proxyManager);
+                        return OnError(refresh_proxy: true);
 
                     string url = result.Value<string>("url");
                     if (string.IsNullOrEmpty(url))

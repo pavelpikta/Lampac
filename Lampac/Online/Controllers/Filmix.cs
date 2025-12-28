@@ -26,7 +26,8 @@ namespace Online.Controllers
         [Route("lite/filmixpro")]
         async public Task<ActionResult> Pro()
         {
-            var token_request = await Http.Get<JObject>($"{init.corsHost()}/api/v2/token_request?user_dev_apk=2.0.1&user_dev_id=&user_dev_name=Xiaomi&user_dev_os=11&user_dev_vendor=Xiaomi&user_dev_token=", proxy: proxy, useDefaultHeaders: false);
+            string uri = $"{init.corsHost()}/api/v2/token_request?user_dev_apk=2.0.1&user_dev_id=&user_dev_name=Xiaomi&user_dev_os=11&user_dev_vendor=Xiaomi&user_dev_token=";
+            var token_request = await Http.Get<JObject>(uri, httpversion: init.httpversion, proxy: proxy, useDefaultHeaders: false);
 
             if (token_request == null)
                 return ContentTo($"нет доступа к {init.corsHost()}");
@@ -65,15 +66,14 @@ namespace Online.Controllers
                init,
                host,
                token,
-               ongettourl => httpHydra.Get(ongettourl, useDefaultHeaders: false),
-               (url, data, head) => httpHydra.Post(url, data, addheaders: head, useDefaultHeaders: false),
+               ongettourl => httpHydra.Get(ongettourl, useDefaultHeaders: false, safety: !string.IsNullOrEmpty(token)),
+               (url, data, head) => httpHydra.Post(url, data, addheaders: head, useDefaultHeaders: false, safety: !string.IsNullOrEmpty(token)),
                streamfile => HostStreamProxy(streamfile),
                requesterror: () => proxyManager.Refresh(rch),
                rjson: rjson
             );
 
-            rhubFallback:
-
+            
             if (postid == 0)
             {
                 var search = await InvokeCacheResult($"filmix:search:{title}:{original_title}:{year}:{clarification}:{similar}", 40, 
@@ -89,11 +89,12 @@ namespace Online.Controllers
                 postid = search.Value.id;
             }
 
+            rhubFallback:
             var cache = await InvokeCacheResult($"filmix:post:{postid}:{token}", 20, 
                 () => oninvk.Post(postid)
             );
 
-            if (IsRhubFallback(cache))
+            if (IsRhubFallback(cache, safety: !string.IsNullOrEmpty(token)))
                 goto rhubFallback;
 
             return OnResult(cache, () => oninvk.Tpl(cache.Value, init.pro, postid, title, original_title, t, s, vast: init.vast));

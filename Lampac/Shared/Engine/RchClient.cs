@@ -303,7 +303,7 @@ namespace Shared.Engine
 
                 if (useDefaultHeaders)
                 {
-                    send_headers = new Dictionary<string, string>(Http.defaultHeaders)
+                    send_headers = new Dictionary<string, string>(Http.defaultUaHeaders)
                     {
                         { "accept-language", "ru-RU,ru;q=0.9,uk-UA;q=0.8,uk;q=0.7,en-US;q=0.6,en;q=0.5" }
                     };
@@ -378,8 +378,9 @@ namespace Shared.Engine
         #region IsRequiredConnected
         public bool IsRequiredConnected()
         {
-            if (!AppInit.conf.rch.requiredConnected)
-                return false; // Обязательное подключение отключено
+            if (!AppInit.conf.rch.requiredConnected  // Обязательное подключение отключено
+                && init.rchstreamproxy == null)      // rchstreamproxy не указан
+                return false;
 
             if (httpContext != null)
             {
@@ -393,14 +394,6 @@ namespace Shared.Engine
         #endregion
 
         #region IsNotSupport
-        /// <summary>
-        /// Используйте <see cref="IsNotSupportRchAccess"/>.
-        /// Метод может быть удалён в будущих версиях.
-        /// </summary>
-        [Obsolete("Используйте IsNotSupportRchAccess. Может быть удалён в следующих версиях.")]
-        public bool IsNotSupport(string rch_deny, out string rch_msg)
-            => IsNotSupportRchAccess(rch_deny, out rch_msg);
-
         public bool IsNotSupport(out string rch_msg)
         {
             rch_msg = null;

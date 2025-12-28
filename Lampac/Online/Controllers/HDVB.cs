@@ -12,11 +12,11 @@ namespace Online.Controllers
         [Route("lite/hdvb")]
         async public ValueTask<ActionResult> Index(long kinopoisk_id, string title, string original_title, int t = -1, int s = -1, bool rjson = false, bool similar = false)
         {
+            if (similar || kinopoisk_id == 0)
+                return await RouteSpiderSearch(title, rjson);
+
             if (await IsRequestBlocked(rch: true))
                 return badInitMsg;
-
-            if (similar || kinopoisk_id == 0)
-                return await SpiderSearch(title, rjson);
 
             reset:
 
@@ -138,17 +138,15 @@ namespace Online.Controllers
             {
                 if (!hybridCache.TryGetValue(key, out string urim3u8))
                 {
-                    var header = httpHeaders(init, HeadersModel.Init(
+                    var header = HeadersModel.Init(
                         ("accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"),
                         ("sec-fetch-dest", "document"),
                         ("sec-fetch-mode", "navigate"),
                         ("sec-fetch-site", "none")
-                    ));
+                    );
 
                     reset:
-                    string html = rch.enable 
-                        ? await rch.Get(iframe, header) 
-                        : await Http.Get(iframe, timeoutSeconds: 8, proxy: proxy, headers: header);
+                    string html = await httpHydra.Get(iframe, addheaders: header);
 
                     if (html != null)
                     {
@@ -163,7 +161,7 @@ namespace Online.Controllers
                         {
                             string origin = Regex.Match(iframe, "(https?://[^/]+)").Groups[1].Value;
 
-                            header = httpHeaders(init, HeadersModel.Init(
+                            header = HeadersModel.Init(
                                 ("accept", "*/*"),
                                 ("origin", origin),
                                 ("referer", $"{origin}/"),
@@ -171,11 +169,9 @@ namespace Online.Controllers
                                 ("sec-fetch-mode", "cors"),
                                 ("sec-fetch-site", "same-site"),
                                 ("x-csrf-token", csrftoken)
-                            ));
+                            );
 
-                            urim3u8 = rch.enable 
-                                ? await rch.Post($"https://{vid}.{href}/playlist/{file}.txt", "", header) 
-                                : await Http.Post($"https://{vid}.{href}/playlist/{file}.txt", "", timeoutSeconds: 8, proxy: proxy, headers: header);
+                            urim3u8 = await httpHydra.Post($"https://{vid}.{href}/playlist/{file}.txt", "", addheaders: header);
 
                             if (urim3u8 != null)
                             {
@@ -186,11 +182,7 @@ namespace Online.Controllers
                                     file = Regex.Replace(file, "\\.txt$", "");
 
                                     if (!string.IsNullOrEmpty(file))
-                                    {
-                                        urim3u8 = rch.enable 
-                                            ? await rch.Post($"https://{vid}.{href}/playlist/{file}.txt", "", header) 
-                                            : await Http.Post($"https://{vid}.{href}/playlist/{file}.txt", "", timeoutSeconds: 8, proxy: proxy, headers: header);
-                                    }
+                                        urim3u8 = await httpHydra.Post($"https://{vid}.{href}/playlist/{file}.txt", "", addheaders: header);
                                 }
                             }
                         }
@@ -257,16 +249,16 @@ namespace Online.Controllers
                     string mkey_playlist = $"video:view:playlist:{iframe}";
                     if (!hybridCache.TryGetValue(mkey_playlist, out (List<Folder> playlist, string href, List<HeadersModel> header) cache))
                     {
-                        cache.header = httpHeaders(init, HeadersModel.Init(
+                        cache.header = HeadersModel.Init(
                             ("accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"),
                             ("sec-fetch-dest", "iframe"),
                             ("sec-fetch-mode", "navigate"),
                             ("sec-fetch-site", "cross-site"),
                             ("referer", $"{init.host}/")
-                        ));
+                        );
 
                         reset_playlist:
-                        string html = await httpHydra.Get(iframe, newheaders: cache.header);
+                        string html = await httpHydra.Get(iframe, addheaders: cache.header);
 
                         if (html != null)
                         {
@@ -280,7 +272,7 @@ namespace Online.Controllers
                             {
                                 string origin = Regex.Match(iframe, "(https?://[^/]+)").Groups[1].Value;
 
-                                cache.header = httpHeaders(init, HeadersModel.Init(
+                                cache.header = HeadersModel.Init(
                                     ("accept", "*/*"),
                                     ("origin", origin),
                                     ("referer", $"{origin}/"),
@@ -288,9 +280,9 @@ namespace Online.Controllers
                                     ("sec-fetch-mode", "cors"),
                                     ("sec-fetch-site", "same-site"),
                                     ("x-csrf-token", csrftoken)
-                                ));
+                                );
 
-                                cache.playlist = await httpHydra.Post<List<Folder>>($"https://{vid}.{href}/playlist/{file}.txt", "", newheaders: cache.header, IgnoreDeserializeObject: true);
+                                cache.playlist = await httpHydra.Post<List<Folder>>($"https://{vid}.{href}/playlist/{file}.txt", "", addheaders: cache.header, IgnoreDeserializeObject: true);
 
                                 if (cache.playlist != null && cache.playlist.Count > 0)
                                 {
@@ -322,7 +314,7 @@ namespace Online.Controllers
                         episode = Regex.Replace(episode, "^/playlist/", "/");
                         episode = Regex.Replace(episode, "\\.txt$", "");
 
-                        urim3u8 = await httpHydra.Post($"https://{vid}.{cache.href}/playlist/{episode}.txt", "", newheaders: cache.header);
+                        urim3u8 = await httpHydra.Post($"https://{vid}.{cache.href}/playlist/{episode}.txt", "", addheaders: cache.header);
                     }
 
                     if (string.IsNullOrEmpty(urim3u8) || !urim3u8.Contains("/index.m3u8"))
@@ -345,7 +337,7 @@ namespace Online.Controllers
                 }
 
                 if (play)
-                    return Redirect(HostStreamProxy(init, urim3u8, proxy: proxy));
+                    return Redirect(HostStreamProxy(urim3u8));
 
                 return ContentTo("{\"method\":\"play\",\"url\":\"" + HostStreamProxy(urim3u8) + "\",\"title\":\"" + (title ?? original_title) + "\"}");
             });
@@ -355,7 +347,7 @@ namespace Online.Controllers
         #region SpiderSearch
         [HttpGet]
         [Route("lite/hdvb-search")]
-        async public ValueTask<ActionResult> SpiderSearch(string title,bool rjson = false)
+        async public ValueTask<ActionResult> RouteSpiderSearch(string title,bool rjson = false)
         {
             if (string.IsNullOrWhiteSpace(title))
                 return OnError();
@@ -366,7 +358,7 @@ namespace Online.Controllers
             rhubFallback:
             var cache = await InvokeCacheResult<JArray>($"hdvb:search:{title}", 40, async e =>
             {
-                var root = await httpHydra.Get<JArray>($"{init.host}/api/videos.json?token={init.token}&title={HttpUtility.UrlEncode(title)}");
+                var root = await httpHydra.Get<JArray>($"{init.host}/api/videos.json?token={init.token}&title={HttpUtility.UrlEncode(title)}", safety: true);
 
                 if (root == null)
                     return e.Fail("results");
@@ -374,7 +366,7 @@ namespace Online.Controllers
                 return e.Success(root);
             });
 
-            if (IsRhubFallback(cache))
+            if (IsRhubFallback(cache, safety: true))
                 goto rhubFallback;
 
             return OnResult(cache, () =>
@@ -406,7 +398,7 @@ namespace Online.Controllers
 
             if (!hybridCache.TryGetValue(memKey, out JArray root, inmemory: false))
             {
-                root = await httpHydra.Get<JArray>($"{init.corsHost()}/api/videos.json?token={init.token}&id_kp={kinopoisk_id}");
+                root = await httpHydra.Get<JArray>($"{init.corsHost()}/api/videos.json?token={init.token}&id_kp={kinopoisk_id}", safety: true);
 
                 if (root == null)
                 {
