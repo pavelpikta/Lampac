@@ -15,44 +15,54 @@ namespace Shared.Engine
 
         static Timer _clearTimer;
 
-        static DateTime _nextClearDb = DateTime.Now.AddMinutes(20);
+        static DateTime _nextClearDb = DateTime.Now.AddMinutes(5);
 
         static ConcurrentDictionary<string, (DateTime extend, HybridCacheSqlModel cache)> tempDb;
+
+        public static int Stat_ContTempDb => tempDb == null || tempDb.IsEmpty ? 0 : tempDb.Count;
 
         public static void Configure(IMemoryCache mem)
         {
             memoryCache = mem;
 
             tempDb = new ConcurrentDictionary<string, (DateTime extend, HybridCacheSqlModel value)>();
-            _clearTimer = new Timer(UpdateDB, null, TimeSpan.Zero, TimeSpan.FromSeconds(5));
+            _clearTimer = new Timer(UpdateDB, null, TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(100));
         }
 
-        static bool updatingDb = false;
+        static int _updatingDb = 0;
         async static void UpdateDB(object state)
         {
-            if (updatingDb || tempDb.Count == 0)
+            if (tempDb == null || tempDb.IsEmpty)
+                return;
+
+            if (Interlocked.Exchange(ref _updatingDb, 1) == 1)
                 return;
 
             try
             {
-                updatingDb = true;
+                var now = DateTime.Now;
 
-                using (var sqlDb = new HybridCacheContext())
+                if (now > _nextClearDb)
                 {
-                    if (DateTime.Now > _nextClearDb)
+                    _nextClearDb = DateTime.Now.AddMinutes(5);
+
+                    using (var sqlDb = new HybridCacheContext())
                     {
-                        _nextClearDb = DateTime.Now.AddMinutes(20);
-
-                        var now = DateTime.Now;
-
                         await sqlDb.files
                             .Where(i => now > i.ex)
                             .ExecuteDeleteAsync();
                     }
-                    else
+                }
+                else
+                {
+                    var array = tempDb
+                        .Where(t => now > t.Value.extend)
+                        .Take(500)
+                        .ToArray();
+
+                    if (array.Length > 0)
                     {
-                        var array = tempDb.ToArray().Where(t => t.Value.extend >= DateTime.Now);
-                        if (array.Any())
+                        using (var sqlDb = new HybridCacheContext())
                         {
                             var delete_ids = array.Select(k => k.Key).ToHashSet();
                             if (delete_ids.Count > 0)
@@ -66,7 +76,7 @@ namespace Shared.Engine
 
                             foreach (var t in array)
                             {
-                                if (hash_ids.Add(t.Key))
+                                if (hash_ids.Add(t.Key) && t.Value.cache.ex > now)
                                 {
                                     sqlDb.files.Add(new HybridCacheSqlModel()
                                     {
@@ -91,7 +101,7 @@ namespace Shared.Engine
             }
             finally
             {
-                updatingDb = false;
+                Volatile.Write(ref _updatingDb, 0);
             }
         }
         #endregion
@@ -168,16 +178,17 @@ namespace Shared.Engine
 
                 string md5key = CrypTo.md5(key);
 
-                tempDb.TryGetValue(md5key, out var _temp);
-
-                if (_temp.cache != null)
+                if (tempDb.TryGetValue(md5key, out var _temp) 
+                    && _temp.cache != null)
                 {
                     setmemory = false;
                     return deserializeCache(_temp.cache, out value);
                 }
                 else
                 {
-                    using (var sqlDb = new HybridCacheContext())
+                    using (var sqlDb = HybridCacheContext.Factory != null 
+                        ? HybridCacheContext.Factory.CreateDbContext()
+                        : new HybridCacheContext())
                     {
                         var doc = sqlDb.files.Find(md5key);
                         return deserializeCache(doc, out value);
@@ -221,6 +232,12 @@ namespace Shared.Engine
             if (AppInit.conf.cache.type == "mem")
                 return false;
 
+            string md5key = CrypTo.md5(key);
+
+            // кеш уже получен от другого rch клиента
+            if (tempDb.ContainsKey(md5key))
+                return true;
+
             var type = typeof(TItem);
             bool isText = type == typeof(string);
 
@@ -257,11 +274,13 @@ namespace Shared.Engine
                     absoluteExpiration = eventResult.ex;
                 }
 
-                var extend = DateTime.Now.AddSeconds(Math.Max(5, AppInit.conf.cache.extend));
+                /// защита от асинхронных rch запросов которые приходят в рамках 12 секунд
+                /// дополнительный кеш для сериалов, что бы выборка сезонов/озвучки не дергала sql 
+                var extend = DateTime.Now.AddSeconds(Math.Max(15, AppInit.conf.cache.extend));
 
-                tempDb.TryAdd(CrypTo.md5(key), (extend, new HybridCacheSqlModel()
+                tempDb.TryAdd(md5key, (extend, new HybridCacheSqlModel()
                 {
-                    Id = CrypTo.md5(key),
+                    Id = md5key,
                     ex = absoluteExpiration.DateTime,
                     value = result
                 }));

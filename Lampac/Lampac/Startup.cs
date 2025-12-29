@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -21,6 +22,7 @@ using Shared;
 using Shared.Engine;
 using Shared.Models.Module;
 using Shared.Models.Module.Entrys;
+using Shared.Models.SQL;
 using Shared.PlaywrightCore;
 using System;
 using System.Collections.Generic;
@@ -183,6 +185,11 @@ namespace Lampac
                 });
             }
 
+            services.AddMemoryCache(o =>
+            {
+                o.TrackStatistics = AppInit.conf.openstat.enable;
+            });
+
             services.AddSignalR(o =>
             {
                 o.EnableDetailedErrors = true;
@@ -193,6 +200,12 @@ namespace Lampac
 
             services.AddSingleton<IActionDescriptorChangeProvider>(DynamicActionDescriptorChangeProvider.Instance);
             services.AddSingleton(DynamicActionDescriptorChangeProvider.Instance);
+
+            services.AddDbContextFactory<SyncUserContext>(SyncUserContext.ConfiguringDbBuilder);
+            services.AddDbContextFactory<HybridCacheContext>(HybridCacheContext.ConfiguringDbBuilder);
+            services.AddDbContextFactory<ProxyLinkContext>(ProxyLinkContext.ConfiguringDbBuilder);
+            services.AddDbContextFactory<SisiContext>(SisiContext.ConfiguringDbBuilder);
+            services.AddDbContextFactory<ExternalidsContext>(ExternalidsContext.ConfiguringDbBuilder);
 
             IMvcBuilder mvcBuilder = services.AddControllersWithViews();
 
@@ -392,10 +405,24 @@ namespace Lampac
         #endregion
 
 
-        public void Configure(IApplicationBuilder app, IWebHostEnvironment env, IMemoryCache memory, IHttpClientFactory httpClientFactory, IHostApplicationLifetime applicationLifetime)
+        public void Configure(
+            IApplicationBuilder app, IWebHostEnvironment env, IMemoryCache memory, IHttpClientFactory httpClientFactory, IHostApplicationLifetime applicationLifetime,
+            IDbContextFactory<SyncUserContext> SyncUserContextFactory,
+            IDbContextFactory<HybridCacheContext> HybridCacheContextFactory,
+            IDbContextFactory<ProxyLinkContext> ProxyLinkContextFactory,
+            IDbContextFactory<SisiContext> SisiContextFactory,
+            IDbContextFactory<ExternalidsContext> ExternalidsContextFactory
+        )
         {
             _app = app;
             memoryCache = memory;
+
+            SyncUserContext.Factory = SyncUserContextFactory;
+            HybridCacheContext.Factory = HybridCacheContextFactory;
+            ProxyLinkContext.Factory = ProxyLinkContextFactory;
+            SisiContext.Factory = SisiContextFactory;
+            ExternalidsContext.Factory = ExternalidsContextFactory;
+
             Shared.Startup.Configure(app, memory);
             HybridCache.Configure(memory);
             ProxyManager.Configure(memory);

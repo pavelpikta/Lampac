@@ -1,12 +1,17 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using System.ComponentModel.DataAnnotations;
 
 namespace Shared.Models.SQL
 {
     public partial class HybridCacheContext
     {
-        public static void Initialization() 
+        public static IDbContextFactory<HybridCacheContext> Factory { get; set; }
+
+        public static void Initialization()
         {
+            Directory.CreateDirectory("cache");
+
             try
             {
                 var sqlDb = new HybridCacheContext();
@@ -15,6 +20,22 @@ namespace Shared.Models.SQL
             catch (Exception ex)
             {
                 Console.WriteLine($"HybridCacheDb initialization failed: {ex.Message}");
+            }
+        }
+
+        public static void ConfiguringDbBuilder(DbContextOptionsBuilder optionsBuilder)
+        {
+            if (!optionsBuilder.IsConfigured)
+            {
+                optionsBuilder.UseSqlite(new SqliteConnectionStringBuilder
+                {
+                    DataSource = "cache/HybridCache.sql",
+                    Cache = SqliteCacheMode.Shared,
+                    DefaultTimeout = 10,
+                    Pooling = true
+                }.ToString());
+
+                optionsBuilder.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking);
             }
         }
     }
@@ -26,8 +47,7 @@ namespace Shared.Models.SQL
 
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {
-            optionsBuilder.UseSqlite("Data Source=cache/HybridCache.sql");
-            optionsBuilder.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking);
+            ConfiguringDbBuilder(optionsBuilder);
         }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -36,6 +56,7 @@ namespace Shared.Models.SQL
                         .HasIndex(j => j.ex);
         }
     }
+
 
     public class HybridCacheSqlModel
     {

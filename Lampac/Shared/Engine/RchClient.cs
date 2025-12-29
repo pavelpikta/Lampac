@@ -36,14 +36,15 @@ namespace Shared.Engine
 
         static Timer _checkConnectionTimer;
 
-        static bool _cronCheckConnectionWork = false;
+        static int _cronCheckConnectionWork = 0;
 
         async static void CheckConnection(object state)
         {
-            if (_cronCheckConnectionWork || clients.Count == 0)
+            if (clients.IsEmpty)
                 return;
 
-            _cronCheckConnectionWork = true;
+            if (Interlocked.Exchange(ref _cronCheckConnectionWork, 1) == 1)
+                return;
 
             try
             {
@@ -65,7 +66,7 @@ namespace Shared.Engine
             catch { }
             finally
             {
-                _cronCheckConnectionWork = false;
+                Volatile.Write(ref _cronCheckConnectionWork, 0);
             }
         }
 
@@ -137,7 +138,7 @@ namespace Shared.Engine
             this.connectionId = connectionId;
         }
 
-        public RchClient(HttpContext context, string host, BaseSettings init, in RequestModel requestInfo, int? keepalive = null)
+        public RchClient(HttpContext context, string host, BaseSettings init, RequestModel requestInfo, int? keepalive = null)
         {
             this.init = init;
             httpContext = context;
@@ -378,10 +379,6 @@ namespace Shared.Engine
         #region IsRequiredConnected
         public bool IsRequiredConnected()
         {
-            if (!AppInit.conf.rch.requiredConnected  // Обязательное подключение отключено
-                && init.rchstreamproxy == null)      // rchstreamproxy не указан
-                return false;
-
             if (httpContext != null)
             {
                 var requestInfo = httpContext.Features.Get<RequestModel>();
@@ -389,7 +386,11 @@ namespace Shared.Engine
                     return false;
             }
 
-            return SocketClient().connectionId == null;
+            if (AppInit.conf.rch.requiredConnected  // Обязательное подключение
+                || init.rchstreamproxy != null)     // Нужно знать rchtype устройства 
+                return SocketClient().connectionId == null;
+
+            return false;
         }
         #endregion
 

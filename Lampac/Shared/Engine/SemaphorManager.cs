@@ -7,16 +7,30 @@ namespace Shared.Engine
     {
         #region static
         private static readonly ConcurrentDictionary<string, SemaphoreEntry> _semaphoreLocks = new();
-        private static readonly Timer _cleanupTimer = new(_ => Cleanup(), null, TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(20));
+        private static readonly Timer _cleanupTimer = new(_ => Cleanup(), null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
 
+        public static int Stat_ContSemaphoreLocks => _semaphoreLocks.IsEmpty ? 0 : _semaphoreLocks.Count;
+
+        static int _updatingDb = 0;
         static void Cleanup()
         {
-            var threshold = DateTime.UtcNow - TimeSpan.FromMinutes(2);
+            if (Interlocked.Exchange(ref _updatingDb, 1) == 1)
+                return;
 
-            foreach (var kvp in _semaphoreLocks.ToArray())
+            try
             {
-                if (kvp.Value.LastUsed < threshold && _semaphoreLocks.TryRemove(kvp.Key, out var removed))
-                    removed.Dispose();
+                var threshold = DateTime.UtcNow - TimeSpan.FromMinutes(2);
+
+                foreach (var kvp in _semaphoreLocks.ToArray())
+                {
+                    if (kvp.Value.LastUsed < threshold && _semaphoreLocks.TryRemove(kvp.Key, out var removed))
+                        removed.Dispose();
+                }
+            }
+            catch { }
+            finally
+            {
+                Volatile.Write(ref _updatingDb, 0);
             }
         }
         #endregion
