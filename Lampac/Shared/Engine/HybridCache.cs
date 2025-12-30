@@ -8,7 +8,7 @@ using System.Threading;
 
 namespace Shared.Engine
 {
-    public struct HybridCache
+    public class HybridCache
     {
         #region HybridCache
         static IMemoryCache memoryCache;
@@ -17,22 +17,20 @@ namespace Shared.Engine
 
         static DateTime _nextClearDb = DateTime.Now.AddMinutes(5);
 
-        static ConcurrentDictionary<string, (DateTime extend, HybridCacheSqlModel cache)> tempDb;
+        readonly static ConcurrentDictionary<string, (DateTime extend, bool IsSerialize, DateTime ex, object value)> tempDb = new();
 
-        public static int Stat_ContTempDb => tempDb == null || tempDb.IsEmpty ? 0 : tempDb.Count;
+        public static int Stat_ContTempDb => tempDb.IsEmpty ? 0 : tempDb.Count;
 
         public static void Configure(IMemoryCache mem)
         {
             memoryCache = mem;
-
-            tempDb = new ConcurrentDictionary<string, (DateTime extend, HybridCacheSqlModel value)>();
-            _clearTimer = new Timer(UpdateDB, null, TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(100));
+            _clearTimer = new Timer(UpdateDB, null, TimeSpan.FromSeconds(10), TimeSpan.FromMilliseconds(100));
         }
 
         static int _updatingDb = 0;
         async static void UpdateDB(object state)
         {
-            if (tempDb == null || tempDb.IsEmpty)
+            if (tempDb.IsEmpty)
                 return;
 
             if (Interlocked.Exchange(ref _updatingDb, 1) == 1)
@@ -76,13 +74,15 @@ namespace Shared.Engine
 
                             foreach (var t in array)
                             {
-                                if (hash_ids.Add(t.Key) && t.Value.cache.ex > now)
+                                if (t.Value.ex > now && hash_ids.Add(t.Key))
                                 {
                                     sqlDb.files.Add(new HybridCacheSqlModel()
                                     {
                                         Id = t.Key,
-                                        ex = t.Value.cache.ex,
-                                        value = t.Value.cache.value
+                                        ex = t.Value.ex,
+                                        value = t.Value.IsSerialize
+                                            ? JsonConvert.SerializeObject(t.Value.value)
+                                            : t.Value.value.ToString()
                                     });
                                 }
                             }
@@ -115,7 +115,7 @@ namespace Shared.Engine
 
         public bool TryGetValue<TItem>(string key, out TItem value, bool? inmemory = null)
         {
-            if (!AppInit.conf.mikrotik && AppInit.conf.cache.type != "mem")
+            if (!AppInit.conf.mikrotik == false && AppInit.conf.cache.type != "mem")
             {
                 if (memoryCache.TryGetValue(key, out value))
                     return true;
@@ -141,9 +141,6 @@ namespace Shared.Engine
             value = default;
             setmemory = true;
 
-            if (AppInit.conf.cache.type == "mem")
-                return false;
-
             var type = typeof(TItem);
             bool isText = type == typeof(string);
 
@@ -159,30 +156,13 @@ namespace Shared.Engine
 
             try
             {
-                bool deserializeCache(HybridCacheSqlModel doc, out TItem result)
-                {
-                    result = default;
-
-                    if (doc?.Id == null || DateTime.Now > doc.ex)
-                        return false;
-
-                    var eventResult = InvkEvent.HybridCache("read", key, doc.value, doc.ex);
-
-                    if (IsDeserialize)
-                        result = JsonConvert.DeserializeObject<TItem>(eventResult.value ?? doc.value);
-                    else
-                        result = (TItem)Convert.ChangeType(eventResult.value ?? doc.value, type);
-
-                    return true;
-                }
-
                 string md5key = CrypTo.md5(key);
 
-                if (tempDb.TryGetValue(md5key, out var _temp) 
-                    && _temp.cache != null)
+                if (tempDb.TryGetValue(md5key, out var _temp))
                 {
                     setmemory = false;
-                    return deserializeCache(_temp.cache, out value);
+                    value = (TItem)_temp.value;
+                    return true;
                 }
                 else
                 {
@@ -191,7 +171,16 @@ namespace Shared.Engine
                         : new HybridCacheContext())
                     {
                         var doc = sqlDb.files.Find(md5key);
-                        return deserializeCache(doc, out value);
+
+                        if (doc?.Id == null || DateTime.Now > doc.ex)
+                            return false;
+
+                        if (IsDeserialize)
+                            value = JsonConvert.DeserializeObject<TItem>(doc.value);
+                        else
+                            value = (TItem)Convert.ChangeType(doc.value, type);
+
+                        return true;
                     }
                 }
             }
@@ -253,37 +242,14 @@ namespace Shared.Engine
 
             try
             {
-                string result;
-
-                if (IsSerialize)
-                {
-                    result = JsonConvert.SerializeObject(value);
-                }
-                else
-                {
-                    result = value.ToString();
-                }
-
                 if (absoluteExpiration == default)
                     absoluteExpiration = DateTimeOffset.Now.Add(absoluteExpirationRelativeToNow);
-
-                var eventResult = InvkEvent.HybridCache("write", key, result, absoluteExpiration);
-                if (eventResult != default)
-                {
-                    result = eventResult.value;
-                    absoluteExpiration = eventResult.ex;
-                }
 
                 /// защита от асинхронных rch запросов которые приходят в рамках 12 секунд
                 /// дополнительный кеш для сериалов, что бы выборка сезонов/озвучки не дергала sql 
                 var extend = DateTime.Now.AddSeconds(Math.Max(15, AppInit.conf.cache.extend));
 
-                tempDb.TryAdd(md5key, (extend, new HybridCacheSqlModel()
-                {
-                    Id = md5key,
-                    ex = absoluteExpiration.DateTime,
-                    value = result
-                }));
+                tempDb.TryAdd(md5key, (extend, IsSerialize, absoluteExpiration.DateTime, value));
 
                 return true;
             }
