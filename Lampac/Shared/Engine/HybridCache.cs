@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Caching.Memory;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using Shared.Models;
 using Shared.Models.SQL;
 using System.Collections.Concurrent;
 using System.Threading;
@@ -10,25 +11,36 @@ namespace Shared.Engine
 {
     public class HybridCache
     {
-        #region HybridCache
+        #region static
         static IMemoryCache memoryCache;
 
-        static Timer _clearTimer;
+        static Timer _clearTempDb, _clearHistory;
 
         static DateTime _nextClearDb = DateTime.Now.AddMinutes(5);
 
-        readonly static ConcurrentDictionary<string, (DateTime extend, bool IsSerialize, DateTime ex, object value)> tempDb = new();
+        static readonly ConcurrentDictionary<string, (DateTime extend, bool IsSerialize, DateTime ex, object value)> tempDb = new();
+
+        /// <summary>
+        /// key, (ex кеша, <ip, время>)
+        /// </summary>
+        static readonly ConcurrentDictionary<string, (DateTime ex, ConcurrentDictionary<string, DateTime> requests)> requestHistory = new();
 
         public static int Stat_ContTempDb => tempDb.IsEmpty ? 0 : tempDb.Count;
+        #endregion
 
+        #region Configure
         public static void Configure(IMemoryCache mem)
         {
             memoryCache = mem;
-            _clearTimer = new Timer(UpdateDB, null, TimeSpan.FromSeconds(10), TimeSpan.FromMilliseconds(100));
+            _clearTempDb = new Timer(ClearTempDb, null, TimeSpan.FromSeconds(10), TimeSpan.FromMilliseconds(200));
+            _clearHistory = new Timer(ClearHistory, null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
         }
+        #endregion
 
+        #region ClearTempDb
         static int _updatingDb = 0;
-        async static void UpdateDB(object state)
+
+        async static void ClearTempDb(object state)
         {
             if (tempDb.IsEmpty)
                 return;
@@ -55,10 +67,9 @@ namespace Shared.Engine
                 {
                     var array = tempDb
                         .Where(t => now > t.Value.extend)
-                        .Take(500)
-                        .ToArray();
+                        .Take(500);
 
-                    if (array.Length > 0)
+                    if (array.Any())
                     {
                         using (var sqlDb = new HybridCacheContext())
                         {
@@ -89,8 +100,8 @@ namespace Shared.Engine
 
                             await sqlDb.SaveChangesAsync();
 
-                            foreach (var t in array)
-                                tempDb.TryRemove(t.Key, out _);
+                            foreach (string key in delete_ids)
+                                tempDb.TryRemove(key, out _);
                         }
                     }
                 }
@@ -106,6 +117,56 @@ namespace Shared.Engine
         }
         #endregion
 
+        #region ClearHistory
+        static int _updatingHistory = 0;
+
+        async static void ClearHistory(object state)
+        {
+            if (requestHistory.IsEmpty)
+                return;
+
+            if (Interlocked.Exchange(ref _updatingHistory, 1) == 1)
+                return;
+
+            try
+            {
+                var now = DateTime.Now;
+                var cutoff = now.AddSeconds(-60);
+
+                foreach (var history in requestHistory)
+                {
+                    foreach (var req in history.Value.requests)
+                    {
+                        if (cutoff > req.Value)
+                            history.Value.requests.TryRemove(req.Key, out _);
+                    }
+
+                    if (history.Value.requests.Count == 0)
+                    {
+                        requestHistory.TryRemove(history.Key, out _);
+                        continue;
+                    }
+                }
+            }
+            finally
+            {
+                Volatile.Write(ref _updatingHistory, 0);
+            }
+        }
+        #endregion
+
+
+        #region HybridCache
+        RequestModel requestInfo;
+
+        public HybridCache() { }
+
+        public HybridCache(RequestModel requestInfo)
+        {
+            this.requestInfo = requestInfo;
+        }
+        #endregion
+
 
         #region TryGetValue
         public bool TryGetValue(string key, out object value)
@@ -115,18 +176,13 @@ namespace Shared.Engine
 
         public bool TryGetValue<TItem>(string key, out TItem value, bool? inmemory = null)
         {
-            if (!AppInit.conf.mikrotik == false && AppInit.conf.cache.type != "mem")
+            if (AppInit.conf.mikrotik == false && AppInit.conf.cache.type != "mem")
             {
                 if (memoryCache.TryGetValue(key, out value))
                     return true;
 
-                if (ReadCache(key, out value, out bool setmemory))
-                {
-                    if (setmemory && inmemory != false && AppInit.conf.cache.type == "hybrid" && AppInit.conf.cache.extend > 0)
-                        memoryCache.Set(key, value, DateTime.Now.AddSeconds(AppInit.conf.cache.extend));
-
+                if (ReadCache(key, out value))
                     return true;
-                }
 
                 return false;
             }
@@ -136,10 +192,9 @@ namespace Shared.Engine
         #endregion
 
         #region ReadCache
-        private bool ReadCache<TItem>(string key, out TItem value, out bool setmemory)
+        private bool ReadCache<TItem>(string key, out TItem value)
         {
             value = default;
-            setmemory = true;
 
             var type = typeof(TItem);
             bool isText = type == typeof(string);
@@ -160,8 +215,8 @@ namespace Shared.Engine
 
                 if (tempDb.TryGetValue(md5key, out var _temp))
                 {
-                    setmemory = false;
                     value = (TItem)_temp.value;
+                    updateRequestHistory(key, _temp.ex, value);
                     return true;
                 }
                 else
@@ -180,6 +235,7 @@ namespace Shared.Engine
                         else
                             value = (TItem)Convert.ChangeType(doc.value, type);
 
+                        updateRequestHistory(key, doc.ex, value);
                         return true;
                     }
                 }
@@ -194,10 +250,10 @@ namespace Shared.Engine
         #region Set
         public TItem Set<TItem>(string key, TItem value, DateTimeOffset absoluteExpiration, bool? inmemory = null)
         {
-            if (inmemory != true && !AppInit.conf.mikrotik && WriteCache(key, value, absoluteExpiration, default))
+            if (inmemory != true && AppInit.conf.mikrotik == false && WriteCache(key, value, absoluteExpiration, default))
                 return value;
 
-            if (inmemory != true && !AppInit.conf.mikrotik)
+            if (inmemory != true && AppInit.conf.mikrotik == false)
                 Console.WriteLine($"set memory: {key} / {DateTime.Now}");
 
             return memoryCache.Set(key, value, absoluteExpiration);
@@ -205,10 +261,10 @@ namespace Shared.Engine
 
         public TItem Set<TItem>(string key, TItem value, TimeSpan absoluteExpirationRelativeToNow, bool? inmemory = null)
         {
-            if (inmemory != true && !AppInit.conf.mikrotik && WriteCache(key, value, default, absoluteExpirationRelativeToNow))
+            if (inmemory != true && AppInit.conf.mikrotik == false && WriteCache(key, value, default, absoluteExpirationRelativeToNow))
                 return value;
 
-            if (inmemory != true && !AppInit.conf.mikrotik)
+            if (inmemory != true && AppInit.conf.mikrotik == false)
                 Console.WriteLine($"set memory: {key} / {DateTime.Now}");
 
             return memoryCache.Set(key, value, absoluteExpirationRelativeToNow);
@@ -256,6 +312,30 @@ namespace Shared.Engine
             catch { }
 
             return false;
+        }
+        #endregion
+
+
+        #region updateRequestHistory
+        void updateRequestHistory<TItem>(string key, DateTime ex, TItem value)
+        {
+            if (AppInit.conf.cache.type != "hybrid" || requestInfo == null)
+                return;
+
+            var history = requestHistory.GetOrAdd(key, _ => (ex, new ConcurrentDictionary<string, DateTime>()));
+            history.requests.AddOrUpdate(requestInfo.IP, DateTime.Now, (k,v) => DateTime.Now);
+
+            if (history.requests.Count >= 5)
+            {
+                var timecache = ex > DateTime.Now.AddMinutes(15) 
+                    ? DateTime.Now.AddMinutes(10) 
+                    : ex; // 1-15
+
+                memoryCache.Set(key, value, timecache);
+
+                requestHistory.TryRemove(key, out _);
+                tempDb.TryRemove(CrypTo.md5(key), out _);
+            }
         }
         #endregion
     }

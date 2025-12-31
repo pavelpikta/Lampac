@@ -27,7 +27,7 @@ namespace Shared
     {
         public static string appversion => "151";
 
-        public static string minorversion => "4";
+        public static string minorversion => "5";
 
 
         protected static readonly ConcurrentDictionary<string, SemaphoreSlim> _semaphoreLocks = new();
@@ -42,7 +42,7 @@ namespace Shared
             get
             {
                 if (_hybridCache == null)
-                    _hybridCache = new HybridCache();
+                    _hybridCache = new HybridCache(requestInfo);
 
                 return _hybridCache;
             }
@@ -405,7 +405,12 @@ namespace Shared
                     await semaphore.WaitAsync();
 
                 if (hybridCache.TryGetValue(key, out T val, memory))
+                {
+                    HttpContext.Response.Headers["X-Invoke-Cache"] = "HIT";
                     return val;
+                }
+
+                HttpContext.Response.Headers["X-Invoke-Cache"] = "MISS";
 
                 val = await onget.Invoke();
                 if (val == null || val.Equals(default(T)))
@@ -436,11 +441,11 @@ namespace Shared
 
                 if (hybridCache.TryGetValue(key, out T _val, memory))
                 {
-                    HttpContext.Response.Headers.TryAdd("X-Invoke-Cache", "HIT");
+                    HttpContext.Response.Headers["X-Invoke-Cache"] = "HIT";
                     return new CacheResult<T>() { IsSuccess = true, Value = _val };
                 }
 
-                HttpContext.Response.Headers.TryAdd("X-Invoke-Cache", "MISS");
+                HttpContext.Response.Headers["X-Invoke-Cache"] = "MISS";
 
                 var val = await onget.Invoke(new CacheResult<T>());
 

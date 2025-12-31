@@ -24,13 +24,13 @@ namespace Lampac.Engine
             WriteIndented = false
         };
 
-        public static readonly ConcurrentDictionary<string, NwsConnection> _connections = new ConcurrentDictionary<string, NwsConnection>();
+        public static readonly ConcurrentDictionary<string, NwsConnection> _connections = new();
 
-        static readonly Timer ConnectionMonitorTimer = new Timer(ConnectionMonitorCallback, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+        static readonly Timer ConnectionMonitorTimer = new Timer(ConnectionMonitorCallback, null, TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(5));
 
-        public readonly static ConcurrentDictionary<string, byte> weblog_clients = new ConcurrentDictionary<string, byte>();
+        public readonly static ConcurrentDictionary<string, byte> weblog_clients = new();
 
-        public readonly static ConcurrentDictionary<string, string> event_clients = new ConcurrentDictionary<string, string>();
+        public readonly static ConcurrentDictionary<string, string> event_clients = new();
 
         public static int ConnectionCount => _connections.Count;
         #endregion
@@ -346,6 +346,7 @@ namespace Lampac.Engine
                         await connection.Socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, cts.Token).ConfigureAwait(false);
 
                     connection.UpdateActivity();
+                    connection.UpdateSendActivity();
                 }
             }
             catch (WebSocketException)
@@ -439,24 +440,43 @@ namespace Lampac.Engine
         #endregion
 
         #region ConnectionMonitorCallback
+        static int _updatingMonitorCallback = 0;
+
         static void ConnectionMonitorCallback(object state)
         {
+            if (_connections.IsEmpty)
+                return;
+
+            if (Interlocked.Exchange(ref _updatingMonitorCallback, 1) == 1)
+                return;
+
             try
             {
-                if (_connections.IsEmpty)
-                    return;
+                var now = DateTime.UtcNow;
+                var cutoff = now.AddSeconds(-125); // ping каждые 40 секунд
 
                 foreach (string connectionId in _connections.Select(kv => kv.Key).ToArray())
                 {
                     if (_connections.TryGetValue(connectionId, out var connection))
                     {
-                        if (DateTime.UtcNow.AddMinutes(-2) >= connection.LastActivityUtc)
+                        if (cutoff >= connection.LastActivityUtc)
                             connection.Cancel();
+
+                        int inactiveAfterMinutes = AppInit.conf.WebSocket.inactiveAfterMinutes;
+                        if (inactiveAfterMinutes > 0)
+                        {
+                            if (now.AddMinutes(-inactiveAfterMinutes) >= connection.LastSendActivityUtc)
+                                connection.Cancel();
+                        }
                     }
                 }
             }
             catch
             {
+            }
+            finally
+            {
+                Volatile.Write(ref _updatingMonitorCallback, 0);
             }
         }
         #endregion
