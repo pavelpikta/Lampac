@@ -425,10 +425,19 @@ namespace Shared
 
             // false - GC старается возвращать высвобождённую виртуальную память ОС
             // true - GC сохраняет адресное пространство/сегменты, чтобы быстрее переиспользовать
-            RetainVM = true, 
+            RetainVM = false,
 
-            //Concurrent = false,
-            ConserveMemory = 9, HighMemoryPercent = 1
+            // false — только Stop-the-World сборки
+            // true  — фоновые (concurrent) сборки
+            Concurrent = null,
+
+            // 1 — минимальная экономия памяти, крупные поколения
+            // 9 — максимальная экономия, маленькие поколения, частые GC
+            ConserveMemory = 3,
+
+            // Процент доступной памяти, после которого GC считает систему под давлением
+            // Ниже значение — раньше и агрессивнее запускаются сборки
+            HighMemoryPercent = 80
         };
 
         public PuppeteerConf chromium = new PuppeteerConf()
@@ -523,7 +532,7 @@ namespace Shared
             intervalupdate = 90, // minute
             basetag = true, index = "lampa-main/index.html",
             git = "yumata/lampa",
-            tree = "e570c0d4ece3f69219dbf7b4d47fcfc49f6dbe0a"
+            tree = "d25e86bab2532f0656a11943ee5412c4eb685a8f"
         };
 
         public OnlineConf online = new OnlineConf()
