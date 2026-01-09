@@ -67,14 +67,12 @@ namespace Online.Controllers
                host,
                token,
                "lite/filmix",
-               ongettourl => httpHydra.Get(ongettourl, useDefaultHeaders: false, safety: !string.IsNullOrEmpty(token)),
-               (url, data, head) => httpHydra.Post(url, data, addheaders: head, useDefaultHeaders: false, safety: !string.IsNullOrEmpty(token)),
+               httpHydra,
                streamfile => HostStreamProxy(streamfile),
                requesterror: () => proxyManager?.Refresh(),
                rjson: rjson
             );
 
-            
             if (postid == 0)
             {
                 var search = await InvokeCacheResult($"filmix:search:{title}:{original_title}:{year}:{clarification}:{similar}", 40, 

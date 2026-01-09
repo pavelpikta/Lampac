@@ -40,6 +40,17 @@ namespace Shared.Engine
         }
         #endregion
 
+        #region GetSpan
+        public Task GetSpan(string url, Action<ReadOnlySpan<char>> spanAction, List<HeadersModel> addheaders = null, List<HeadersModel> newheaders = null, bool useDefaultHeaders = true, bool statusCodeOK = true, bool safety = false)
+        {
+            var headers = JsonHeaders(addheaders, newheaders);
+
+            return IsRchEnable(safety)
+                ? rch.GetSpan(spanAction, init.cors(url), headers, useDefaultHeaders)
+                : Http.GetSpan(spanAction, init.cors(url), timeoutSeconds: init.httptimeout, httpversion: init.httpversion, proxy: proxy, headers: headers, useDefaultHeaders: useDefaultHeaders, statusCodeOK: statusCodeOK);
+        }
+        #endregion
+
         #region Post
         public Task<T> Post<T>(string url, string data, List<HeadersModel> addheaders = null, List<HeadersModel> newheaders = null, bool useDefaultHeaders = true, bool statusCodeOK = true, Encoding encoding = default, bool IgnoreDeserializeObject = false, bool safety = false)
         {
@@ -57,6 +68,17 @@ namespace Shared.Engine
             return IsRchEnable(safety)
                 ? rch.Post(init.cors(url), data, headers, useDefaultHeaders)
                 : Http.Post(init.cors(url), data, encoding: encoding, timeoutSeconds: init.httptimeout, httpversion: init.httpversion, proxy: proxy, headers: headers, useDefaultHeaders: useDefaultHeaders, statusCodeOK: statusCodeOK);
+        }
+        #endregion
+
+        #region PostSpan
+        public Task PostSpan(string url, string data, Action<ReadOnlySpan<char>> spanAction, List<HeadersModel> addheaders = null, List<HeadersModel> newheaders = null, bool useDefaultHeaders = true, bool statusCodeOK = true, Encoding encoding = default, bool safety = false)
+        {
+            var headers = JsonHeaders(addheaders, newheaders);
+
+            return IsRchEnable(safety)
+                ? rch.PostSpan(spanAction, init.cors(url), data, headers, useDefaultHeaders)
+                : Http.PostSpan(spanAction, init.cors(url), data, encoding: encoding, timeoutSeconds: init.httptimeout, httpversion: init.httpversion, proxy: proxy, headers: headers, useDefaultHeaders: useDefaultHeaders, statusCodeOK: statusCodeOK);
         }
         #endregion
 

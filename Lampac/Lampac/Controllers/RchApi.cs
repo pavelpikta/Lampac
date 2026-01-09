@@ -1,10 +1,9 @@
 ﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Shared;
 using Shared.Engine;
-using System.IO;
 using System.IO.Compression;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace Lampac.Controllers
@@ -30,21 +29,27 @@ namespace Lampac.Controllers
         [HttpPost]
         [AllowAnonymous]
         [Route("rch/result")]
-        public ActionResult WriteResult([FromForm] string id, [FromForm] string value)
+        async public Task<ActionResult> WriteResult([FromQuery] string id)
         {
             if (string.IsNullOrEmpty(id))
+                return BadRequest(401);
+
+            if (!RchClient.rchIds.TryGetValue(id, out var rchHub))
+                return BadRequest(400);
+
+            try
             {
-                HttpContext.Response.StatusCode = 401;
-                return Content(string.Empty);
+                await Request.Body.CopyToAsync(rchHub.ms, 64_000, HttpContext.RequestAborted);
+                rchHub.ms.Position = 0;
+
+                rchHub.tcs.TrySetResult(null);
+            }
+            catch
+            {
+                rchHub.tcs.TrySetResult(null);
+                return BadRequest(400);
             }
 
-            if (!RchClient.rchIds.TryGetValue(id, out var tcs))
-            {
-                HttpContext.Response.StatusCode = 400;
-                return Content(string.Empty);
-            }
-
-            tcs.TrySetResult(value ?? string.Empty);
             return Ok();
         }
 
@@ -54,21 +59,25 @@ namespace Lampac.Controllers
         async public Task<ActionResult> WriteZipResult([FromQuery] string id)
         {
             if (string.IsNullOrEmpty(id))
-            {
-                HttpContext.Response.StatusCode = 401;
-                return Content(string.Empty);
-            }
+                return BadRequest(401);
 
-            if (!RchClient.rchIds.TryGetValue(id, out var tcs))
-            {
-                HttpContext.Response.StatusCode = 400;
-                return Content(string.Empty);
-            }
+            if (!RchClient.rchIds.TryGetValue(id, out var rchHub))
+                return BadRequest(400);
 
-            using (var gzip = new GZipStream(Request.Body, CompressionMode.Decompress, leaveOpen: true))
+            try
             {
-                using (var reader = new StreamReader(gzip, Encoding.UTF8))
-                    tcs.TrySetResult(await reader.ReadToEndAsync(HttpContext.RequestAborted) ?? string.Empty);
+                using (var gzip = new GZipStream(Request.Body, CompressionMode.Decompress, leaveOpen: true))
+                {
+                    await gzip.CopyToAsync(rchHub.ms, 32_000, HttpContext.RequestAborted);
+                    rchHub.ms.Position = 0;
+
+                    rchHub.tcs.TrySetResult(null);
+                }
+            }
+            catch 
+            {
+                rchHub.tcs.TrySetResult(null);
+                return BadRequest(400);
             }
 
             return Ok();
