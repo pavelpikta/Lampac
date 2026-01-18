@@ -19,6 +19,7 @@ namespace Lampac.Engine.Middlewares
         }
 
         private readonly RequestDelegate _next;
+        static bool manifestInitial = false;
         IMemoryCache memoryCache;
 
         public Accsdb(RequestDelegate next, IMemoryCache mem)
@@ -30,22 +31,27 @@ namespace Lampac.Engine.Middlewares
         public Task Invoke(HttpContext httpContext)
         {
             var requestInfo = httpContext.Features.Get<RequestModel>();
-            if (requestInfo.IsLocalRequest || requestInfo.IsAnonymousRequest)
-                return _next(httpContext);
+
+            #region manifest/install
+            if (!manifestInitial)
+            {
+                if (!File.Exists("module/manifest.json"))
+                {
+                    if (httpContext.Request.Path.Value.StartsWith("/admin/manifest/install"))
+                        return _next(httpContext);
+
+                    httpContext.Response.Redirect("/admin/manifest/install");
+                    return Task.CompletedTask;
+                }
+                else { manifestInitial = true; }
+            }
+            #endregion
 
             #region admin
-            if (httpContext.Request.Path.Value.StartsWith("/admin/") || httpContext.Request.Path.Value == "/admin")
+            if (httpContext.Request.Path.Value.StartsWith("/admin"))
             {
                 if (httpContext.Request.Cookies.TryGetValue("passwd", out string passwd))
                 {
-                    if (passwd == AppInit.rootPasswd)
-                    {
-                        if (httpContext.Request.Path.Value.StartsWith("/admin/auth"))
-                            return _next(httpContext);
-
-                        return _next(httpContext);
-                    }
-
                     string ipKey = $"Accsdb:auth:IP:{requestInfo.IP}";
                     if (!memoryCache.TryGetValue(ipKey, out ConcurrentDictionary<string, byte> passwds))
                     {
@@ -57,6 +63,9 @@ namespace Lampac.Engine.Middlewares
 
                     if (passwds.Count > 10)
                         return httpContext.Response.WriteAsync("Too many attempts, try again tomorrow.", httpContext.RequestAborted);
+
+                    if (passwd == AppInit.rootPasswd)
+                        return _next(httpContext);
                 }
 
                 if (httpContext.Request.Path.Value.StartsWith("/admin/auth"))
@@ -66,6 +75,9 @@ namespace Lampac.Engine.Middlewares
                 return Task.CompletedTask;
             }
             #endregion
+
+            if (requestInfo.IsLocalRequest || requestInfo.IsAnonymousRequest)
+                return _next(httpContext);
 
             #region jacred
             string jacpattern = "^/(api/v2.0/indexers|api/v1.0/|toloka|rutracker|rutor|torrentby|nnmclub|kinozal|bitru|selezen|megapeer|animelayer|anilibria|anifilm|toloka|lostfilm|bigfangroup|mazepa)";

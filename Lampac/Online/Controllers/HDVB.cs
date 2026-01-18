@@ -42,7 +42,8 @@ namespace Online.Controllers
 
                 foreach (var m in data)
                 {
-                    string link = $"{host}/lite/hdvb/video?kinopoisk_id={kinopoisk_id}&title={HttpUtility.UrlEncode(title)}&original_title={HttpUtility.UrlEncode(original_title)}&iframe={HttpUtility.UrlEncode(m.Value<string>("iframe_url"))}";
+                    string iframe = fixframe(init.corsHost(), m.Value<string>("iframe_url"));
+                    string link = $"{host}/lite/hdvb/video?kinopoisk_id={kinopoisk_id}&title={HttpUtility.UrlEncode(title)}&original_title={HttpUtility.UrlEncode(original_title)}&iframe={HttpUtility.UrlEncode(iframe)}";
                     
                     mtpl.Append(m.Value<string>("translator"), link, "call", accsArgs($"{link.Replace("/video", "/video.m3u8")}&play=true"));
                 }
@@ -94,7 +95,7 @@ namespace Online.Controllers
                     #endregion
 
                     var etpl = new EpisodeTpl(vtpl);
-                    string iframe = HttpUtility.UrlEncode(data[t].Value<string>("iframe_url"));
+                    string iframe = HttpUtility.UrlEncode(fixframe(init.corsHost(), data[t].Value<string>("iframe_url")));
                     string translator = HttpUtility.UrlEncode(data[t].Value<string>("translator"));
 
                     foreach (int episode in data[t].Value<JArray>("serial_episodes").FirstOrDefault(i => i.Value<int>("season_number") == s).Value<JArray>("episodes").ToObject<List<int>>())
@@ -144,14 +145,14 @@ namespace Online.Controllers
                 {
                     var header = HeadersModel.Init(
                         ("accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"),
-                        ("sec-fetch-dest", "document"),
+                        ("sec-fetch-dest", "iframe"),
                         ("sec-fetch-mode", "navigate"),
-                        ("sec-fetch-site", "none")
+                        ("sec-fetch-site", "cross-site")
                     );
 
                     reset:
 
-                    string vid = null, href = null, csrftoken = null, file = null;
+                    string vid = "vid11", href = null, csrftoken = null, file = null;
 
                     await httpHydra.GetSpan(iframe, addheaders: header, spanAction: html =>
                     {
@@ -220,7 +221,9 @@ namespace Online.Controllers
                 if (play)
                     return RedirectToPlay(m3u8);
 
-                return ContentTo(VideoTpl.ToJson("play", m3u8, (title ?? original_title), vast: init.vast));
+                var headers_stream = init.streamproxy ? null : httpHeaders(init.corsHost(), init.headers_stream);
+
+                return ContentTo(VideoTpl.ToJson("play", m3u8, (title ?? original_title), vast: init.vast, headers: headers_stream));
             });
         }
         #endregion
@@ -265,8 +268,7 @@ namespace Online.Controllers
                             ("accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"),
                             ("sec-fetch-dest", "iframe"),
                             ("sec-fetch-mode", "navigate"),
-                            ("sec-fetch-site", "cross-site"),
-                            ("referer", $"{init.host}/")
+                            ("sec-fetch-site", "cross-site")
                         );
 
                         reset_playlist:
@@ -369,10 +371,14 @@ namespace Online.Controllers
                     #endregion
                 }
 
-                if (play)
-                    return Redirect(HostStreamProxy(urim3u8));
+                string m3u8 = HostStreamProxy(urim3u8);
 
-                return ContentTo("{\"method\":\"play\",\"url\":\"" + HostStreamProxy(urim3u8) + "\",\"title\":\"" + (title ?? original_title) + "\"}");
+                if (play)
+                    return Redirect(m3u8);
+
+                var headers_stream = init.streamproxy ? null : httpHeaders(init.corsHost(), init.headers_stream);
+
+                return ContentTo(VideoTpl.ToJson("play", m3u8, (title ?? original_title), vast: init.vast, headers: headers_stream));
             });
         }
         #endregion
@@ -391,7 +397,8 @@ namespace Online.Controllers
             rhubFallback:
             var cache = await InvokeCacheResult<JArray>($"hdvb:search:{title}", 40, async e =>
             {
-                var root = await httpHydra.Get<JArray>($"{init.host}/api/videos.json?token={init.token}&title={HttpUtility.UrlEncode(title)}", safety: true);
+                var newheaders = HeadersModel.Init(Http.defaultFullHeaders);
+                var root = await httpHydra.Get<JArray>($"{init.cors(init.apihost)}/api/videos.json?token={init.token}&title={HttpUtility.UrlEncode(title)}", safety: true, newheaders: newheaders);
 
                 if (root == null)
                     return e.Fail("results");
@@ -431,7 +438,8 @@ namespace Online.Controllers
 
             if (!hybridCache.TryGetValue(memKey, out JArray root, inmemory: false))
             {
-                root = await httpHydra.Get<JArray>($"{init.corsHost()}/api/videos.json?token={init.token}&id_kp={kinopoisk_id}", safety: true);
+                var newheaders = HeadersModel.Init(Http.defaultFullHeaders);
+                root = await httpHydra.Get<JArray>($"{init.cors(init.apihost)}/api/videos.json?token={init.token}&id_kp={kinopoisk_id}", safety: true, newheaders: newheaders);
 
                 if (root == null)
                 {
@@ -450,5 +458,11 @@ namespace Online.Controllers
             return root;
         }
         #endregion
+
+
+        static string fixframe(string _h, string iframe)
+        {
+            return Regex.Replace(iframe, "^https?://[^/]+", _h);
+        }
     }
 }

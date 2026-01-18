@@ -540,7 +540,7 @@ namespace Shared
             intervalupdate = 90, // minute
             basetag = true, index = "lampa-main/index.html",
             git = "yumata/lampa",
-            tree = "a8a965a46736b879188fe3c4efdb761a3f7c00ef"
+            tree = "edc8f61ed661d731fa60a16f2daef44909ae4938"
         };
 
         public OnlineConf online = new OnlineConf()
@@ -1042,11 +1042,22 @@ namespace Shared
         public IframeVideoSettings IframeVideo { get; set; } = new IframeVideoSettings("IframeVideo", "kwwsv=22liudph1ylghr", "kwwsv=22ylghriudph1vsdfh", enable: false);
 
         /// <summary>
+        /// aHR0cHM6Ly9tb3ZpZWxhYi5vbmU=
         /// aHR0cHM6Ly92aWQxNzMwODAxMzcwLmZvdHBybzEzNWFsdG8uY29tL2FwaS9pZGtwP2twX2lkPTEzOTI1NTAmZD1raW5vZ28uaW5j
         /// </summary>
-        public OnlinesSettings HDVB { get; set; } = new OnlinesSettings("HDVB", "kwwsv=22dslye1frp", token: "8h5ih7f:3edig<d:747f7i4:3hh4e4<5", rch_access: "apk", stream_access: "apk,cors,web")
+        public OnlinesSettings HDVB { get; set; } = new OnlinesSettings("HDVB", "kwwsv=22ylg4:667649;41hqwrxdhgrq1frp", "kwwsv=22dslye1frp", token: "8h5ih7f:3edig<d:747f7i4:3hh4e4<5", rch_access: "apk", stream_access: "apk,cors,web")
         {
-            headers = Http.defaultFullHeaders
+            streamproxy = true,
+            headers = HeadersModel.Init(Http.defaultFullHeaders,
+                ("referer", "encrypt:kwwsv=22prylhode1rqh2")
+            ).ToDictionary(),
+            headers_stream = HeadersModel.Init(Http.defaultFullHeaders,
+                ("origin", "{host}"),
+                ("referer", "{host}/"),
+                ("sec-fetch-dest", "empty"),
+                ("sec-fetch-mode", "cors"),
+                ("sec-fetch-site", "same-site")
+            ).ToDictionary()
         };
 
         /// <summary>
@@ -1069,9 +1080,8 @@ namespace Shared
                 ("upgrade-insecure-requests", "1")
             ).ToDictionary(),
             headers_stream = HeadersModel.Init(Http.defaultFullHeaders,
-                ("referer", "encrypt:kwwsv=22wy040nlqrvhuldo1qhw2"),
-                ("sec-fetch-dest", "video"),
-                ("sec-fetch-mode", "no-cors"),
+                ("sec-fetch-dest", "empty"),
+                ("sec-fetch-mode", "cors"),
                 ("sec-fetch-site", "cross-site")
             ).ToDictionary()
         };
