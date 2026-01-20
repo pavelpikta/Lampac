@@ -145,22 +145,22 @@ namespace Shared.Engine
 
             if (useDefaultHeaders)
             {
-                if (headers != null && headers.FirstOrDefault(i => i.name.ToLower() == "user-agent") != null)
+                if (headers != null && headers.FirstOrDefault(i => i.name.Equals("user-agent", StringComparison.OrdinalIgnoreCase)) != null)
                 {
                     foreach (var h in defaultCommonHeaders)
-                        addHeaders.TryAdd(h.Key.ToLower().Trim(), h.Value);
+                        addHeaders.TryAdd(h.Key.ToLowerAndTrim(), h.Value);
                 }
                 else
                 {
                     foreach (var h in defaultFullHeaders)
-                        addHeaders.TryAdd(h.Key.ToLower().Trim(), h.Value);
+                        addHeaders.TryAdd(h.Key.ToLowerAndTrim(), h.Value);
                 }
             }
 
             if (headers != null)
             {
                 foreach (var h in headers)
-                    addHeaders[h.name.ToLower().Trim()] = h.val;
+                    addHeaders[h.name.ToLowerAndTrim()] = h.val;
             }
 
             if (NormalizeHeaders(addHeaders) is var normalizeHeaders && normalizeHeaders != null)
@@ -1068,7 +1068,7 @@ namespace Shared.Engine
                         {
                             foreach (var item in headers)
                             {
-                                if (item.name.ToLower() == "user-agent")
+                                if (item.name.Equals("user-agent", StringComparison.OrdinalIgnoreCase))
                                     setDefaultUseragent = false;
 
                                 if (!client.DefaultRequestHeaders.Contains(item.name))
@@ -1084,6 +1084,56 @@ namespace Shared.Engine
                             using (var fileStream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, PoolInvk.bufferSize))
                             {
                                 await stream.CopyToAsync(fileStream, PoolInvk.bufferSize);
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+        #endregion
+
+        #region DownloadToStream
+        async public static Task<bool> DownloadToStream(Stream ms, string url, int timeoutSeconds = 20, List<HeadersModel> headers = null, WebProxy proxy = null)
+        {
+            try
+            {
+                using (var handler = Handler(url, proxy))
+                {
+                    using (var client = new HttpClient(handler))
+                    {
+                        client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
+
+                        bool setDefaultUseragent = true;
+
+                        if (headers != null)
+                        {
+                            foreach (var item in headers)
+                            {
+                                if (item.name.Equals("user-agent", StringComparison.OrdinalIgnoreCase))
+                                    setDefaultUseragent = false;
+
+                                if (!client.DefaultRequestHeaders.Contains(item.name))
+                                    client.DefaultRequestHeaders.Add(item.name, item.val);
+                            }
+                        }
+
+                        if (setDefaultUseragent)
+                            client.DefaultRequestHeaders.Add("User-Agent", UserAgent);
+
+                        using (HttpResponseMessage response = await client.GetAsync(url).ConfigureAwait(false))
+                        {
+                            if (response.StatusCode != HttpStatusCode.OK)
+                                return false;
+
+                            using (HttpContent content = response.Content)
+                            {
+                                await content.CopyToAsync(ms);
+                                ms.Position = 0;
                                 return true;
                             }
                         }

@@ -57,20 +57,16 @@ namespace Lampac.Engine.Middlewares
 
             fileWatcher.Deleted += (s, e) => { cacheFiles.TryRemove(e.Name, out _); };
 
-            cleanupTimer = new Timer(cleanup, null, TimeSpan.FromMinutes(60), TimeSpan.FromMinutes(60));
+            cleanupTimer = new Timer(cleanup, null, TimeSpan.FromMinutes(20), TimeSpan.FromMinutes(20));
         }
 
         static void cleanup(object state)
         {
             try
             {
-                string[] files = Directory.GetFiles("cache/img", "*")
-                    .Select(Path.GetFileName)
-                    .ToArray();
-
-                foreach (string md5fileName in cacheFiles.Keys.ToArray())
+                foreach (string md5fileName in cacheFiles.Keys)
                 {
-                    if (!files.Contains(md5fileName))
+                    if (!File.Exists(Path.Combine("cache", "img", md5fileName)))
                         cacheFiles.TryRemove(md5fileName, out _);
                 }
             }
@@ -264,7 +260,7 @@ namespace Lampac.Engine.Middlewares
                             httpContext.Response.StatusCode = (int)response.StatusCode;
 
                             if (response.Content.Headers.TryGetValues("Content-Type", out var contype))
-                                httpContext.Response.ContentType = contype?.FirstOrDefault()?.ToLower()?.Trim() ?? contentType;
+                                httpContext.Response.ContentType = contype?.FirstOrDefault()?.ToLowerAndTrim() ?? contentType;
                             else
                                 httpContext.Response.ContentType = contentType;
 

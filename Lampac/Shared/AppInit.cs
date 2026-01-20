@@ -172,7 +172,7 @@ namespace Shared
                     {
                         conf.accsdb.users.Add(new AccsUser()
                         {
-                            id = u.Key.ToLower().Trim(),
+                            id = u.Key.ToLowerAndTrim(),
                             expires = u.Value
                         });
                     }
@@ -197,7 +197,7 @@ namespace Shared
                             try
                             {
                                 DateTime e = DateTime.FromFileTimeUtc(ex);
-                                string email = data[0].ToLower().Trim();
+                                string email = data[0].ToLowerAndTrim();
 
                                 if (conf.accsdb.findUser(email) is AccsUser user)
                                 {
@@ -418,7 +418,7 @@ namespace Shared
             bruteForceProtection = true,
             limit_map = new Dictionary<string, WafLimitMap>()
             {
-                ["^/(tmdb|cub|dlna|transcoding|ts|proxy)"] = new WafLimitMap() { limit = 40, second = 1 },
+                ["^/(tmdb|cub|dlna|transcoding|ts|proxy)"] = new WafLimitMap() { limit = 50, second = 1 },
                 [".*"] = new WafLimitMap() { limit = 10, second = 1 }
             }
         };

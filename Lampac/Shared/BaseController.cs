@@ -26,7 +26,7 @@ namespace Shared
     {
         public static string appversion => "152";
 
-        public static string minorversion => "4";
+        public static string minorversion => "6";
 
 
         protected static readonly ConcurrentDictionary<string, SemaphoreSlim> _semaphoreLocks = new();
@@ -154,7 +154,7 @@ namespace Shared
             var tempHeaders = new Dictionary<string, string>(_headers.Count);
 
             string ip = requestInfo.IP;
-            string account_email = HttpContext.Request.Query["account_email"].ToString()?.ToLower().Trim() ?? string.Empty;
+            string account_email = HttpContext.Request.Query["account_email"].ToString()?.ToLowerAndTrim() ?? string.Empty;
 
             foreach (var h in _headers)
             {

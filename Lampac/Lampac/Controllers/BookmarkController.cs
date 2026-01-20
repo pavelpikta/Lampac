@@ -70,7 +70,7 @@ namespace Lampac.Controllers
                 string profile_id = getProfileid(requestInfo, HttpContext);
                 string id = requestInfo.user_uid + profile_id;
 
-                string md5key = AppInit.conf.storage.md5name ? CrypTo.md5(id) : Regex.Replace(id, "(\\@|_)", "");
+                string md5key = AppInit.conf.storage.md5name ? CrypTo.md5(id) : Regex.Replace(id, "[^a-z0-9\\-]", "");
                 string storageFile = $"database/storage/sync_favorite/{md5key.Substring(0, 2)}/{md5key.Substring(2)}";
 
                 if (System.IO.File.Exists(storageFile) && !System.IO.File.Exists($"{storageFile}.migration"))
@@ -110,7 +110,7 @@ namespace Lampac.Controllers
                                     #region migrate categories
                                     foreach (var prop in favorite.Properties())
                                     {
-                                        var name = prop.Name.Trim().ToLowerInvariant();
+                                        var name = prop.Name.ToLowerAndTrim();
 
                                         if (string.Equals(name, "card", StringComparison.OrdinalIgnoreCase))
                                             continue;
@@ -233,7 +233,7 @@ namespace Lampac.Controllers
 
                         foreach (var job in jobs)
                         {
-                            string where = job.Value<string>("where")?.Trim()?.ToLowerInvariant();
+                            string where = job.Value<string>("where")?.ToLowerAndTrim();
                             if (string.IsNullOrWhiteSpace(where))
                                 return JsonFailure();
 
@@ -749,7 +749,7 @@ namespace Lampac.Controllers
                 CardIdRaw = job.Value<string>("id") ?? job.Value<string>("card_id")
             };
 
-            payload.Where = (job.Value<string>("where") ?? job.Value<string>("list"))?.Trim()?.ToLowerInvariant();
+            payload.Where = (job.Value<string>("where") ?? job.Value<string>("list"))?.ToLowerAndTrim();
             if (string.IsNullOrEmpty(payload.Where) || payload.Where == "card")
                 payload.Where = null;
 
@@ -774,7 +774,7 @@ namespace Lampac.Controllers
             public string ResolveCardId()
             {
                 if (!string.IsNullOrWhiteSpace(CardIdRaw))
-                    return CardIdRaw.Trim().ToLowerInvariant();
+                    return CardIdRaw.ToLowerAndTrim();
 
                 var token = Card?["id"];
                 if (token != null)
@@ -786,7 +786,7 @@ namespace Lampac.Controllers
                     if (string.IsNullOrWhiteSpace(_id))
                         return null;
 
-                    return _id.Trim().ToLowerInvariant();
+                    return _id.ToLowerAndTrim();
                 }
 
                 return null;
