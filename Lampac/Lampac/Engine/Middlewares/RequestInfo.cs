@@ -46,9 +46,13 @@ namespace Lampac.Engine.Middlewares
             bool IsLocalRequest = false;
             string cf_country = null;
             string clientIp = httpContext.Connection.RemoteIpAddress.ToString();
+            bool IsLocalIp = Shared.Engine.Utilities.IPNetwork.IsLocalIp(clientIp);
 
             if (httpContext.Request.Headers.TryGetValue("localrequest", out var _localpasswd))
             {
+                if (!IsLocalIp && !AppInit.conf.BaseModule.allowExternalIpAccessToLocalRequest)
+                    return httpContext.Response.WriteAsync("allowExternalIpAccessToLocalRequest false", httpContext.RequestAborted);
+
                 if (_localpasswd.ToString() != AppInit.rootPasswd)
                     return httpContext.Response.WriteAsync("error passwd", httpContext.RequestAborted);
 
@@ -100,7 +104,7 @@ namespace Lampac.Engine.Middlewares
             var req = new RequestModel()
             {
                 IsLocalRequest = IsLocalRequest,
-                IsLocalIp = Shared.Engine.Utilities.IPNetwork.IsLocalIp(clientIp),
+                IsLocalIp = IsLocalIp,
                 IP = clientIp,
                 Country = cf_country,
                 Path = httpContext.Request.Path.Value,
@@ -109,17 +113,17 @@ namespace Lampac.Engine.Middlewares
             };
 
             #region Weblog Request
-            if (!IsLocalRequest && !IsWsRequest)
+            if (!IsLocalRequest && !IsWsRequest && AppInit.conf.weblog.enable)
             {
                 if (AppInit.conf.WebSocket.type == "signalr")
                 {
-                    if (soks.weblog_clients.Count > 0)
+                    if (AppInit.conf.BaseModule.ws && soks.weblog_clients.Count > 0)
                         soks.SendLog(builderLog(httpContext, req), "request");
                 }
                 else
                 {
-                    if (nws.weblog_clients.Count > 0)
-                        nws.SendLog(builderLog(httpContext, req), "request");
+                    if (AppInit.conf.BaseModule.nws && NativeWebSocket.weblog_clients.Count > 0)
+                        NativeWebSocket.SendLog(builderLog(httpContext, req), "request");
                 }
             }
             #endregion
